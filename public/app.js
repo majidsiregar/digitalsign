@@ -1,27 +1,14 @@
-// ============ Base URL (untuk proxy/web preview) ============
-var BASE_URL = (function () {
-  // Detect base path from current page URL
-  // e.g. if page is at /proxy/3000/ then API calls need that prefix
-  var scripts = document.getElementsByTagName('script');
-  for (var i = 0; i < scripts.length; i++) {
-    if (scripts[i].src && scripts[i].src.indexOf('app.js') !== -1) {
-      var url = new URL(scripts[i].src);
-      var idx = url.pathname.indexOf('/app.js');
-      if (idx > 0) return url.pathname.substring(0, idx);
-    }
-  }
-  return '';
-})();
-
 // ============ State ============
 let currentStep = 1;
-let pdfFilename = null;
+let pdfArrayBuffer = null; // PDF file stored in memory (ArrayBuffer)
+let pdfOriginalName = null;
+let pdfFileSize = 0;
 let signatureData = null;
-let pdfDoc = null;
+let pdfDoc = null; // pdf.js document for preview
 let currentPageNum = 1;
 let totalPagesCount = 1;
 let placedSignatures = [];
-let signedFilename = null;
+let signedPdfBytes = null; // signed PDF bytes for download
 let sigIdCounter = 0;
 
 // Canvas drawing state
@@ -37,7 +24,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var pdfInput = document.getElementById('pdfInput');
   pdfInput.addEventListener('change', function () {
     if (pdfInput.files.length > 0) {
-      uploadPdf(pdfInput.files[0]);
+      loadPdfFile(pdfInput.files[0]);
     }
   });
 
@@ -58,7 +45,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   setupDragDrop(pdfDrop, function (files) {
     var f = findFile(files, 'application/pdf');
-    if (f) uploadPdf(f);
+    if (f) loadPdfFile(f);
     else showToast('Pilih file PDF', 'error');
   });
 
@@ -144,7 +131,7 @@ document.addEventListener('DOMContentLoaded', function () {
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
-  console.log('DigitalSign initialized');
+  console.log('DigitalSign initialized (client-side mode)');
 });
 
 // ============ Drag & Drop Helper ============
@@ -175,41 +162,34 @@ function findFileByPrefix(files, prefix) {
   return null;
 }
 
-// ============ PDF Upload ============
-async function uploadPdf(file) {
+// ============ PDF Load (Client-Side) ============
+async function loadPdfFile(file) {
   if (file.size > 50 * 1024 * 1024) {
     showToast('Ukuran file melebihi 50MB', 'error');
     return;
   }
 
-  showLoading('Mengupload PDF...');
+  if (file.type !== 'application/pdf') {
+    showToast('Hanya file PDF yang diperbolehkan', 'error');
+    return;
+  }
+
+  showLoading('Membaca PDF...');
 
   try {
-    var formData = new FormData();
-    formData.append('pdf', file);
+    pdfArrayBuffer = await file.arrayBuffer();
+    pdfOriginalName = file.name;
+    pdfFileSize = file.size;
 
-    var res = await fetch(BASE_URL + '/api/upload-pdf', {
-      method: 'POST',
-      body: formData
-    });
-
-    if (!res.ok) {
-      var errData = await res.json().catch(function () { return {}; });
-      throw new Error(errData.error || 'Upload gagal (status ' + res.status + ')');
-    }
-
-    var data = await res.json();
-
-    pdfFilename = data.filename;
-    document.getElementById('pdfFileName').textContent = data.originalName;
-    document.getElementById('pdfFileSize').textContent = formatSize(data.size);
+    document.getElementById('pdfFileName').textContent = pdfOriginalName;
+    document.getElementById('pdfFileSize').textContent = formatSize(pdfFileSize);
     document.getElementById('pdfFileInfo').classList.remove('hidden');
     document.getElementById('pdfDropZone').classList.add('hidden');
 
-    showToast('PDF berhasil diupload', 'success');
+    showToast('PDF berhasil dimuat', 'success');
   } catch (err) {
-    console.error('Upload error:', err);
-    showToast(err.message || 'Gagal mengupload PDF', 'error');
+    console.error('Load error:', err);
+    showToast(err.message || 'Gagal membaca PDF', 'error');
   } finally {
     hideLoading();
     updateNavButtons();
@@ -217,7 +197,9 @@ async function uploadPdf(file) {
 }
 
 function removePdf() {
-  pdfFilename = null;
+  pdfArrayBuffer = null;
+  pdfOriginalName = null;
+  pdfFileSize = 0;
   pdfDoc = null;
   document.getElementById('pdfFileInfo').classList.add('hidden');
   document.getElementById('pdfDropZone').classList.remove('hidden');
@@ -255,7 +237,6 @@ function initCanvas() {
   canvas = document.getElementById('signatureCanvas');
   var rect = canvas.getBoundingClientRect();
 
-  // Canvas must be visible to get dimensions
   if (rect.width < 10) return;
 
   canvasReady = true;
@@ -366,7 +347,9 @@ async function loadPdfPreview() {
   showLoading('Memuat preview PDF...');
 
   try {
-    pdfDoc = await pdfjsLib.getDocument(BASE_URL + '/api/pdf/' + pdfFilename).promise;
+    // Load PDF directly from ArrayBuffer (no server needed)
+    var uint8Array = new Uint8Array(pdfArrayBuffer);
+    pdfDoc = await pdfjsLib.getDocument({ data: uint8Array }).promise;
     totalPagesCount = pdfDoc.numPages;
     currentPageNum = 1;
     document.getElementById('totalPages').textContent = totalPagesCount;
@@ -402,7 +385,6 @@ async function renderPage(num) {
   document.getElementById('currentPage').textContent = num;
   updatePageButtons();
 
-  // Show/hide signatures per page
   placedSignatures.forEach(function (sig) {
     sig.element.style.display = sig.page === (num - 1) ? 'block' : 'none';
   });
@@ -625,10 +607,15 @@ function updateSignaturesList() {
   });
 }
 
-// ============ Sign & Download ============
+// ============ Sign & Download (Client-Side with pdf-lib) ============
 async function signPdf() {
   if (placedSignatures.length === 0) {
     showToast('Tambahkan minimal satu tanda tangan', 'error');
+    return;
+  }
+
+  if (typeof PDFLib === 'undefined') {
+    showToast('Library pdf-lib belum dimuat. Refresh halaman.', 'error');
     return;
   }
 
@@ -636,34 +623,48 @@ async function signPdf() {
 
   var pdfCanvas = document.getElementById('pdfCanvas');
 
-  var payload = placedSignatures.map(function (sig) {
-    return {
-      page: sig.page,
-      x: sig.x,
-      y: sig.y,
-      width: sig.width,
-      height: sig.height,
-      previewWidth: pdfCanvas.width,
-      previewHeight: pdfCanvas.height,
-      opacity: sig.opacity
-    };
-  });
-
   try {
-    var formData = new FormData();
-    formData.append('pdfFilename', pdfFilename);
-    formData.append('signatures', JSON.stringify(payload));
-    formData.append('signatureData', signatureData);
+    // Load the PDF using pdf-lib (client-side)
+    var pdfLibDoc = await PDFLib.PDFDocument.load(pdfArrayBuffer);
 
-    var res = await fetch(BASE_URL + '/api/sign-pdf', { method: 'POST', body: formData });
+    // Convert signature data to image bytes
+    var base64Data = signatureData.replace(/^data:image\/\w+;base64,/, '');
+    var sigBytes = Uint8Array.from(atob(base64Data), function (c) { return c.charCodeAt(0); });
 
-    if (!res.ok) {
-      var errData = await res.json().catch(function () { return {}; });
-      throw new Error(errData.error || 'Gagal menandatangani');
+    // Embed the signature image (try PNG first, then JPG)
+    var sigImage;
+    if (signatureData.indexOf('data:image/png') === 0) {
+      sigImage = await pdfLibDoc.embedPng(sigBytes);
+    } else {
+      sigImage = await pdfLibDoc.embedJpg(sigBytes);
     }
 
-    var data = await res.json();
-    signedFilename = data.filename;
+    // Place signatures on each page
+    for (var i = 0; i < placedSignatures.length; i++) {
+      var sig = placedSignatures[i];
+      var page = pdfLibDoc.getPage(sig.page);
+      var pageSize = page.getSize();
+      var pageWidth = pageSize.width;
+      var pageHeight = pageSize.height;
+
+      // Convert from preview coordinates to PDF coordinates
+      var pdfX = (sig.x / pdfCanvas.width) * pageWidth;
+      var pdfY = pageHeight - (sig.y / pdfCanvas.height) * pageHeight - (sig.height / pdfCanvas.height) * pageHeight;
+      var pdfWidth = (sig.width / pdfCanvas.width) * pageWidth;
+      var pdfHeight = (sig.height / pdfCanvas.height) * pageHeight;
+
+      page.drawImage(sigImage, {
+        x: pdfX,
+        y: pdfY,
+        width: pdfWidth,
+        height: pdfHeight,
+        opacity: sig.opacity !== undefined ? sig.opacity : 1.0
+      });
+    }
+
+    // Save the signed PDF
+    signedPdfBytes = await pdfLibDoc.save();
+
     showToast('PDF berhasil ditandatangani!', 'success');
     goToStep(4);
   } catch (err) {
@@ -675,17 +676,28 @@ async function signPdf() {
 }
 
 function downloadSignedPdf() {
-  if (signedFilename) {
-    window.location.href = BASE_URL + '/api/download/' + signedFilename;
-  }
+  if (!signedPdfBytes) return;
+
+  // Create download link from in-memory bytes
+  var blob = new Blob([signedPdfBytes], { type: 'application/pdf' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'signed-' + (pdfOriginalName || 'document.pdf');
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function startOver() {
-  pdfFilename = null;
+  pdfArrayBuffer = null;
+  pdfOriginalName = null;
+  pdfFileSize = 0;
   signatureData = null;
   pdfDoc = null;
   placedSignatures = [];
-  signedFilename = null;
+  signedPdfBytes = null;
   sigIdCounter = 0;
 
   document.getElementById('pdfFileInfo').classList.add('hidden');
@@ -728,7 +740,7 @@ function goToStep(step) {
 }
 
 function nextStep() {
-  if (currentStep === 1 && !pdfFilename) {
+  if (currentStep === 1 && !pdfArrayBuffer) {
     showToast('Upload file PDF terlebih dahulu', 'error');
     return;
   }
@@ -756,7 +768,7 @@ function updateNavButtons() {
     nextBtn.disabled = placedSignatures.length === 0;
   } else {
     nextBtn.textContent = 'Lanjut';
-    if (currentStep === 1) nextBtn.disabled = !pdfFilename;
+    if (currentStep === 1) nextBtn.disabled = !pdfArrayBuffer;
     else if (currentStep === 2) nextBtn.disabled = !signatureData;
     else nextBtn.disabled = false;
   }
