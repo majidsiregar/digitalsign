@@ -19,14 +19,23 @@ let lastY = 0;
 
 // ============ Init ============
 document.addEventListener('DOMContentLoaded', () => {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
-  initCanvas();
+  // Init core UI first — these must not fail
   initDropZones();
   initTabs();
   initOpacitySlider();
   initFileInputs();
+
+  // PDF.js setup — deferred, non-blocking
+  initPdfJs();
 });
+
+function initPdfJs() {
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  } else {
+    console.warn('PDF.js belum dimuat, akan dicoba lagi saat dibutuhkan');
+  }
+}
 
 // ============ File Inputs ============
 function initFileInputs() {
@@ -169,19 +178,24 @@ function removeSignature() {
 }
 
 // ============ Canvas Drawing ============
+let canvasInitialized = false;
+
 function initCanvas() {
+  if (canvasInitialized) return;
+
   canvas = document.getElementById('signatureCanvas');
   ctx = canvas.getContext('2d');
 
-  const resizeCanvas = () => {
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * 2;
-    canvas.height = rect.height * 2;
-    ctx.scale(2, 2);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-  };
-  resizeCanvas();
+  // Only init when canvas is visible (has dimensions)
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0) return; // Will retry when step 2 is shown
+
+  canvasInitialized = true;
+  canvas.width = rect.width * 2;
+  canvas.height = rect.height * 2;
+  ctx.scale(2, 2);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 
   // Mouse events
   canvas.addEventListener('mousedown', startDrawing);
@@ -226,6 +240,7 @@ function stopDrawing() {
 }
 
 function clearCanvas() {
+  if (!canvasInitialized || !ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
@@ -264,6 +279,14 @@ function initTabs() {
 async function loadPdfPreview() {
   showLoading('Memuat preview PDF...');
   try {
+    // Ensure PDF.js is ready
+    if (typeof pdfjsLib === 'undefined') {
+      throw new Error('PDF.js library belum dimuat. Periksa koneksi internet.');
+    }
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
     const url = `/api/pdf/${pdfFilename}`;
     pdfDoc = await pdfjsLib.getDocument(url).promise;
     totalPagesCount = pdfDoc.numPages;
@@ -633,6 +656,11 @@ function goToStep(step) {
   document.getElementById('navButtons').style.display = step === 4 ? 'none' : 'flex';
 
   updateNavButtons();
+
+  // Init canvas when entering step 2 (needs to be visible for sizing)
+  if (step === 2) {
+    initCanvas();
+  }
 
   // Load PDF preview when entering step 3
   if (step === 3 && pdfDoc === null) {
