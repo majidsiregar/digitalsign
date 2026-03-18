@@ -1,3 +1,18 @@
+// ============ Base URL (untuk proxy/web preview) ============
+var BASE_URL = (function () {
+  // Detect base path from current page URL
+  // e.g. if page is at /proxy/3000/ then API calls need that prefix
+  var scripts = document.getElementsByTagName('script');
+  for (var i = 0; i < scripts.length; i++) {
+    if (scripts[i].src && scripts[i].src.indexOf('app.js') !== -1) {
+      var url = new URL(scripts[i].src);
+      var idx = url.pathname.indexOf('/app.js');
+      if (idx > 0) return url.pathname.substring(0, idx);
+    }
+  }
+  return '';
+})();
+
 // ============ State ============
 let currentStep = 1;
 let pdfFilename = null;
@@ -173,7 +188,7 @@ async function uploadPdf(file) {
     var formData = new FormData();
     formData.append('pdf', file);
 
-    var res = await fetch('/api/upload-pdf', {
+    var res = await fetch(BASE_URL + '/api/upload-pdf', {
       method: 'POST',
       body: formData
     });
@@ -351,7 +366,7 @@ async function loadPdfPreview() {
   showLoading('Memuat preview PDF...');
 
   try {
-    pdfDoc = await pdfjsLib.getDocument('/api/pdf/' + pdfFilename).promise;
+    pdfDoc = await pdfjsLib.getDocument(BASE_URL + '/api/pdf/' + pdfFilename).promise;
     totalPagesCount = pdfDoc.numPages;
     currentPageNum = 1;
     document.getElementById('totalPages').textContent = totalPagesCount;
@@ -640,7 +655,7 @@ async function signPdf() {
     formData.append('signatures', JSON.stringify(payload));
     formData.append('signatureData', signatureData);
 
-    var res = await fetch('/api/sign-pdf', { method: 'POST', body: formData });
+    var res = await fetch(BASE_URL + '/api/sign-pdf', { method: 'POST', body: formData });
 
     if (!res.ok) {
       var errData = await res.json().catch(function () { return {}; });
@@ -661,7 +676,7 @@ async function signPdf() {
 
 function downloadSignedPdf() {
   if (signedFilename) {
-    window.location.href = '/api/download/' + signedFilename;
+    window.location.href = BASE_URL + '/api/download/' + signedFilename;
   }
 }
 
