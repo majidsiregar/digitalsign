@@ -91,6 +91,10 @@ document.addEventListener('DOMContentLoaded', function () {
       document.querySelectorAll('.tab-content').forEach(function (c) { c.classList.remove('active'); });
       btn.classList.add('active');
       document.getElementById(btn.dataset.tab).classList.add('active');
+      // Init canvas when draw tab is shown
+      if (btn.dataset.tab === 'draw-sig') {
+        setTimeout(initCanvas, 50);
+      }
     });
   });
 
