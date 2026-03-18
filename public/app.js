@@ -131,8 +131,33 @@ document.addEventListener('DOMContentLoaded', function () {
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
+  // --- Load default signature ---
+  loadDefaultSignature();
+
   console.log('DigitalSign initialized (client-side mode)');
 });
+
+// ============ Default Signature ============
+function loadDefaultSignature() {
+  fetch('default-signature.png')
+    .then(function (res) {
+      if (!res.ok) throw new Error('Default signature not found');
+      return res.blob();
+    })
+    .then(function (blob) {
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        signatureData = e.target.result;
+        document.getElementById('sigPreviewImg').src = signatureData;
+        document.getElementById('signaturePreview').classList.remove('hidden');
+        updateNavButtons();
+      };
+      reader.readAsDataURL(blob);
+    })
+    .catch(function (err) {
+      console.log('No default signature available:', err.message);
+    });
+}
 
 // ============ Drag & Drop Helper ============
 function setupDragDrop(zone, onFiles) {
