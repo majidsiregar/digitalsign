@@ -65,7 +65,7 @@
           <p>Seret & lepas file PDF di sini, atau klik untuk memilih</p>
           <p class="upload-hint">Maksimal ukuran file: 50MB</p>
           <input type="file" id="pdfInput" accept=".pdf,application/pdf" hidden>
-          <button class="btn btn-primary" onclick="document.getElementById('pdfInput').click()">
+          <button class="btn btn-primary" id="pdfSelectBtn">
             Pilih File PDF
           </button>
         </div>
@@ -105,7 +105,7 @@
             <h3>Upload Tanda Tangan (PNG/JPG)</h3>
             <p>Gunakan gambar dengan latar belakang transparan untuk hasil terbaik</p>
             <input type="file" id="signatureInput" accept="image/png,image/jpeg,image/jpg" hidden>
-            <button class="btn btn-primary" onclick="document.getElementById('signatureInput').click()">
+            <button class="btn btn-primary" id="sigSelectBtn">
               Pilih Gambar
             </button>
           </div>

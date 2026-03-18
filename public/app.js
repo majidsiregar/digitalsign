@@ -32,6 +32,16 @@ document.addEventListener('DOMContentLoaded', () => {
 function initFileInputs() {
   document.getElementById('pdfInput').addEventListener('change', handlePdfSelect);
   document.getElementById('signatureInput').addEventListener('change', handleSignatureSelect);
+
+  // Dedicated button click handlers (prevent event bubbling to drop zone)
+  document.getElementById('pdfSelectBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    document.getElementById('pdfInput').click();
+  });
+  document.getElementById('sigSelectBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    document.getElementById('signatureInput').click();
+  });
 }
 
 // ============ Drop Zones ============
@@ -60,10 +70,12 @@ function setupDropZone(id, handler) {
 
   zone.addEventListener('drop', e => handler(e.dataTransfer.files));
   zone.addEventListener('click', e => {
-    if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
-      const input = zone.querySelector('input[type="file"]');
-      if (input) input.click();
-    }
+    // Don't trigger if clicking on the file input itself (prevents double open)
+    if (e.target.tagName === 'INPUT') return;
+    // Check if click is on a button or inside a button (SVG children)
+    if (e.target.closest('button')) return;
+    const input = zone.querySelector('input[type="file"]');
+    if (input) input.click();
   });
 }
 
