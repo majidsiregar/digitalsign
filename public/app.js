@@ -347,9 +347,9 @@ async function loadPdfPreview() {
   showLoading('Memuat preview PDF...');
 
   try {
-    // Load PDF directly from ArrayBuffer (no server needed)
-    var uint8Array = new Uint8Array(pdfArrayBuffer);
-    pdfDoc = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+    // Copy ArrayBuffer so pdf.js doesn't detach the original
+    var copyForPreview = pdfArrayBuffer.slice(0);
+    pdfDoc = await pdfjsLib.getDocument({ data: copyForPreview }).promise;
     totalPagesCount = pdfDoc.numPages;
     currentPageNum = 1;
     document.getElementById('totalPages').textContent = totalPagesCount;
