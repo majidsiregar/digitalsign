@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digital Sign - Tanda Tangan Digital PDF</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <path d="M9 15l2 2 4-4"/>
+          </svg>
+          <h1>DigitalSign</h1>
+        </div>
+        <p class="tagline">Tanda tangani dokumen PDF dengan mudah</p>
+      </div>
+    </header>
+
+    <!-- Steps Indicator -->
+    <div class="steps-indicator">
+      <div class="step active" data-step="1">
+        <div class="step-number">1</div>
+        <span>Upload PDF</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" data-step="2">
+        <div class="step-number">2</div>
+        <span>Tanda Tangan</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" data-step="3">
+        <div class="step-number">3</div>
+        <span>Posisikan</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" data-step="4">
+        <div class="step-number">4</div>
+        <span>Download</span>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- Step 1: Upload PDF -->
+      <section id="step1" class="step-content active">
+        <div class="upload-area" id="pdfDropZone">
+          <div class="upload-icon">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/>
+              <polyline points="9 15 12 12 15 15"/>
+            </svg>
+          </div>
+          <h2>Upload Dokumen PDF</h2>
+          <p>Seret & lepas file PDF di sini, atau klik untuk memilih</p>
+          <p class="upload-hint">Maksimal ukuran file: 50MB</p>
+          <input type="file" id="pdfInput" accept=".pdf,application/pdf" hidden>
+          <button class="btn btn-primary" onclick="document.getElementById('pdfInput').click()">
+            Pilih File PDF
+          </button>
+        </div>
+        <div id="pdfFileInfo" class="file-info hidden">
+          <div class="file-info-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </div>
+          <div class="file-info-details">
+            <span id="pdfFileName" class="file-name"></span>
+            <span id="pdfFileSize" class="file-size"></span>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="removePdf()">Ganti</button>
+        </div>
+      </section>
+
+      <!-- Step 2: Signature -->
+      <section id="step2" class="step-content">
+        <h2 class="section-title">Pilih Tanda Tangan</h2>
+        <div class="signature-tabs">
+          <button class="tab-btn active" data-tab="upload-sig">Upload File</button>
+          <button class="tab-btn" data-tab="draw-sig">Gambar</button>
+        </div>
+
+        <!-- Upload Signature Tab -->
+        <div id="upload-sig" class="tab-content active">
+          <div class="upload-area small" id="sigDropZone">
+            <div class="upload-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+            </div>
+            <h3>Upload Tanda Tangan (PNG/JPG)</h3>
+            <p>Gunakan gambar dengan latar belakang transparan untuk hasil terbaik</p>
+            <input type="file" id="signatureInput" accept="image/png,image/jpeg,image/jpg" hidden>
+            <button class="btn btn-primary" onclick="document.getElementById('signatureInput').click()">
+              Pilih Gambar
+            </button>
+          </div>
+        </div>
+
+        <!-- Draw Signature Tab -->
+        <div id="draw-sig" class="tab-content">
+          <div class="draw-container">
+            <canvas id="signatureCanvas" width="500" height="200"></canvas>
+            <div class="draw-controls">
+              <div class="draw-options">
+                <label>Warna:
+                  <input type="color" id="penColor" value="#000000">
+                </label>
+                <label>Ketebalan:
+                  <input type="range" id="penSize" min="1" max="8" value="3">
+                </label>
+              </div>
+              <div class="draw-actions">
+                <button class="btn btn-outline btn-sm" onclick="clearCanvas()">Hapus</button>
+                <button class="btn btn-primary btn-sm" onclick="useDrawnSignature()">Gunakan</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Signature Preview -->
+        <div id="signaturePreview" class="signature-preview hidden">
+          <h3>Preview Tanda Tangan</h3>
+          <div class="preview-box">
+            <img id="sigPreviewImg" src="" alt="Preview tanda tangan">
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="removeSignature()">Ganti Tanda Tangan</button>
+        </div>
+      </section>
+
+      <!-- Step 3: Position Signature on PDF -->
+      <section id="step3" class="step-content">
+        <div class="position-layout">
+          <div class="pdf-viewer-container">
+            <div class="pdf-toolbar">
+              <button class="btn btn-icon" onclick="prevPage()" id="prevPageBtn" disabled>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+              </button>
+              <span class="page-info">
+                Halaman <span id="currentPage">1</span> dari <span id="totalPages">1</span>
+              </span>
+              <button class="btn btn-icon" onclick="nextPage()" id="nextPageBtn" disabled>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              </button>
+              <div class="toolbar-separator"></div>
+              <button class="btn btn-primary btn-sm" onclick="addSignatureToPage()">
+                + Tambah Tanda Tangan
+              </button>
+            </div>
+            <div class="pdf-viewer" id="pdfViewer">
+              <canvas id="pdfCanvas"></canvas>
+              <div id="signaturesOverlay" class="signatures-overlay"></div>
+            </div>
+          </div>
+          <div class="placement-sidebar">
+            <h3>Tanda Tangan Ditempatkan</h3>
+            <div id="signaturesList" class="signatures-list">
+              <p class="empty-message">Belum ada tanda tangan. Klik "Tambah Tanda Tangan" untuk menambahkan.</p>
+            </div>
+            <div class="sidebar-controls">
+              <label class="opacity-label">
+                Opacity:
+                <input type="range" id="globalOpacity" min="0.1" max="1" step="0.1" value="1">
+                <span id="opacityValue">100%</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 4: Download -->
+      <section id="step4" class="step-content">
+        <div class="download-area">
+          <div class="success-icon">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <h2>PDF Berhasil Ditandatangani!</h2>
+          <p>Dokumen Anda telah berhasil ditandatangani. Klik tombol di bawah untuk mengunduh.</p>
+          <button class="btn btn-primary btn-lg" id="downloadBtn" onclick="downloadSignedPdf()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download PDF
+          </button>
+          <button class="btn btn-outline" onclick="startOver()">Tanda Tangani Dokumen Lain</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Navigation Buttons -->
+    <div class="nav-buttons" id="navButtons">
+      <button class="btn btn-outline" id="prevBtn" onclick="prevStep()" disabled>Kembali</button>
+      <button class="btn btn-primary" id="nextBtn" onclick="nextStep()">Lanjut</button>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+      <div class="loading-spinner">
+        <div class="spinner"></div>
+        <p id="loadingText">Memproses...</p>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
