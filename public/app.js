@@ -1,104 +1,166 @@
 // ============ State ============
 let currentStep = 1;
-let pdfFile = null;
 let pdfFilename = null;
-let signatureData = null; // base64 image data
-let signatureFile = null;
-let pdfDoc = null; // pdf.js document
+let signatureData = null;
+let pdfDoc = null;
 let currentPageNum = 1;
 let totalPagesCount = 1;
-let placedSignatures = []; // {id, page, x, y, width, height, element}
+let placedSignatures = [];
 let signedFilename = null;
 let sigIdCounter = 0;
 
-// Canvas drawing
+// Canvas drawing state
 let canvas, ctx;
+let canvasReady = false;
 let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
 
-// ============ Init ============
-document.addEventListener('DOMContentLoaded', () => {
-  // Init core UI first — these must not fail
-  initDropZones();
-  initTabs();
-  initOpacitySlider();
-  initFileInputs();
+// ============ DOM Ready ============
+document.addEventListener('DOMContentLoaded', function () {
+  // --- PDF file input ---
+  var pdfInput = document.getElementById('pdfInput');
+  pdfInput.addEventListener('change', function () {
+    if (pdfInput.files.length > 0) {
+      uploadPdf(pdfInput.files[0]);
+    }
+  });
 
-  // PDF.js setup — deferred, non-blocking
-  initPdfJs();
+  // --- PDF select button ---
+  document.getElementById('pdfSelectBtn').addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    pdfInput.value = '';
+    pdfInput.click();
+  });
+
+  // --- PDF drop zone (area click, NOT button) ---
+  var pdfDrop = document.getElementById('pdfDropZone');
+  pdfDrop.addEventListener('click', function (e) {
+    if (e.target.closest('button') || e.target.tagName === 'INPUT') return;
+    pdfInput.value = '';
+    pdfInput.click();
+  });
+  setupDragDrop(pdfDrop, function (files) {
+    var f = findFile(files, 'application/pdf');
+    if (f) uploadPdf(f);
+    else showToast('Pilih file PDF', 'error');
+  });
+
+  // --- Signature file input ---
+  var sigInput = document.getElementById('signatureInput');
+  sigInput.addEventListener('change', function () {
+    if (sigInput.files.length > 0) {
+      loadSignatureFile(sigInput.files[0]);
+    }
+  });
+
+  // --- Signature select button ---
+  document.getElementById('sigSelectBtn').addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    sigInput.value = '';
+    sigInput.click();
+  });
+
+  // --- Signature drop zone ---
+  var sigDrop = document.getElementById('sigDropZone');
+  sigDrop.addEventListener('click', function (e) {
+    if (e.target.closest('button') || e.target.tagName === 'INPUT') return;
+    sigInput.value = '';
+    sigInput.click();
+  });
+  setupDragDrop(sigDrop, function (files) {
+    var f = findFileByPrefix(files, 'image/');
+    if (f) loadSignatureFile(f);
+    else showToast('Pilih file gambar (PNG/JPG)', 'error');
+  });
+
+  // --- Change PDF button ---
+  document.getElementById('changePdfBtn').addEventListener('click', removePdf);
+
+  // --- Change signature button ---
+  document.getElementById('changeSigBtn').addEventListener('click', removeSignature);
+
+  // --- Tabs ---
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+      document.querySelectorAll('.tab-content').forEach(function (c) { c.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // --- Canvas buttons ---
+  document.getElementById('clearCanvasBtn').addEventListener('click', clearCanvas);
+  document.getElementById('useDrawnBtn').addEventListener('click', useDrawnSignature);
+
+  // --- Page navigation ---
+  document.getElementById('prevPageBtn').addEventListener('click', prevPage);
+  document.getElementById('nextPageBtn').addEventListener('click', nextPage);
+
+  // --- Add signature to page ---
+  document.getElementById('addSigBtn').addEventListener('click', addSignatureToPage);
+
+  // --- Opacity slider ---
+  var opSlider = document.getElementById('globalOpacity');
+  var opLabel = document.getElementById('opacityValue');
+  opSlider.addEventListener('input', function () {
+    var val = parseFloat(opSlider.value);
+    opLabel.textContent = Math.round(val * 100) + '%';
+    placedSignatures.forEach(function (sig) {
+      sig.opacity = val;
+      sig.element.style.opacity = val;
+    });
+  });
+
+  // --- Step navigation ---
+  document.getElementById('prevBtn').addEventListener('click', prevStep);
+  document.getElementById('nextBtn').addEventListener('click', nextStep);
+
+  // --- Download ---
+  document.getElementById('downloadBtn').addEventListener('click', downloadSignedPdf);
+  document.getElementById('startOverBtn').addEventListener('click', startOver);
+
+  // --- PDF.js ---
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  console.log('DigitalSign initialized');
 });
 
-function initPdfJs() {
-  if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  } else {
-    console.warn('PDF.js belum dimuat, akan dicoba lagi saat dibutuhkan');
+// ============ Drag & Drop Helper ============
+function setupDragDrop(zone, onFiles) {
+  zone.addEventListener('dragenter', function (e) { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', function (e) { e.preventDefault(); zone.classList.remove('dragover'); });
+  zone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      onFiles(e.dataTransfer.files);
+    }
+  });
+}
+
+function findFile(files, type) {
+  for (var i = 0; i < files.length; i++) {
+    if (files[i].type === type) return files[i];
   }
+  return null;
 }
 
-// ============ File Inputs ============
-function initFileInputs() {
-  document.getElementById('pdfInput').addEventListener('change', handlePdfSelect);
-  document.getElementById('signatureInput').addEventListener('change', handleSignatureSelect);
-
-  // Dedicated button click handlers (prevent event bubbling to drop zone)
-  document.getElementById('pdfSelectBtn').addEventListener('click', e => {
-    e.stopPropagation();
-    document.getElementById('pdfInput').click();
-  });
-  document.getElementById('sigSelectBtn').addEventListener('click', e => {
-    e.stopPropagation();
-    document.getElementById('signatureInput').click();
-  });
-}
-
-// ============ Drop Zones ============
-function initDropZones() {
-  setupDropZone('pdfDropZone', handlePdfDrop);
-  setupDropZone('sigDropZone', handleSigDrop);
-}
-
-function setupDropZone(id, handler) {
-  const zone = document.getElementById(id);
-  if (!zone) return;
-
-  ['dragenter', 'dragover'].forEach(evt => {
-    zone.addEventListener(evt, e => {
-      e.preventDefault();
-      zone.classList.add('dragover');
-    });
-  });
-
-  ['dragleave', 'drop'].forEach(evt => {
-    zone.addEventListener(evt, e => {
-      e.preventDefault();
-      zone.classList.remove('dragover');
-    });
-  });
-
-  zone.addEventListener('drop', e => handler(e.dataTransfer.files));
-  zone.addEventListener('click', e => {
-    // Don't trigger if clicking on the file input itself (prevents double open)
-    if (e.target.tagName === 'INPUT') return;
-    // Check if click is on a button or inside a button (SVG children)
-    if (e.target.closest('button')) return;
-    const input = zone.querySelector('input[type="file"]');
-    if (input) input.click();
-  });
+function findFileByPrefix(files, prefix) {
+  for (var i = 0; i < files.length; i++) {
+    if (files[i].type.indexOf(prefix) === 0) return files[i];
+  }
+  return null;
 }
 
 // ============ PDF Upload ============
-function handlePdfSelect(e) {
-  if (e.target.files.length > 0) uploadPdf(e.target.files[0]);
-}
-
-function handlePdfDrop(files) {
-  const pdf = Array.from(files).find(f => f.type === 'application/pdf');
-  if (pdf) uploadPdf(pdf);
-  else showToast('Pilih file PDF', 'error');
-}
-
 async function uploadPdf(file) {
   if (file.size > 50 * 1024 * 1024) {
     showToast('Ukuran file melebihi 50MB', 'error');
@@ -106,34 +168,42 @@ async function uploadPdf(file) {
   }
 
   showLoading('Mengupload PDF...');
-  const formData = new FormData();
-  formData.append('pdf', file);
 
   try {
-    const res = await fetch('/api/upload-pdf', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    var formData = new FormData();
+    formData.append('pdf', file);
 
-    pdfFile = file;
+    var res = await fetch('/api/upload-pdf', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) {
+      var errData = await res.json().catch(function () { return {}; });
+      throw new Error(errData.error || 'Upload gagal (status ' + res.status + ')');
+    }
+
+    var data = await res.json();
+
     pdfFilename = data.filename;
-
     document.getElementById('pdfFileName').textContent = data.originalName;
     document.getElementById('pdfFileSize').textContent = formatSize(data.size);
     document.getElementById('pdfFileInfo').classList.remove('hidden');
     document.getElementById('pdfDropZone').classList.add('hidden');
 
     showToast('PDF berhasil diupload', 'success');
-    updateNavButtons();
   } catch (err) {
+    console.error('Upload error:', err);
     showToast(err.message || 'Gagal mengupload PDF', 'error');
   } finally {
     hideLoading();
+    updateNavButtons();
   }
 }
 
 function removePdf() {
-  pdfFile = null;
   pdfFilename = null;
+  pdfDoc = null;
   document.getElementById('pdfFileInfo').classList.add('hidden');
   document.getElementById('pdfDropZone').classList.remove('hidden');
   document.getElementById('pdfInput').value = '';
@@ -141,211 +211,194 @@ function removePdf() {
 }
 
 // ============ Signature Upload ============
-function handleSignatureSelect(e) {
-  if (e.target.files.length > 0) loadSignatureFile(e.target.files[0]);
-}
-
-function handleSigDrop(files) {
-  const img = Array.from(files).find(f => f.type.startsWith('image/'));
-  if (img) loadSignatureFile(img);
-  else showToast('Pilih file gambar (PNG/JPG)', 'error');
-}
-
 function loadSignatureFile(file) {
-  signatureFile = file;
-  const reader = new FileReader();
-  reader.onload = e => {
+  var reader = new FileReader();
+  reader.onload = function (e) {
     signatureData = e.target.result;
-    showSignaturePreview(signatureData);
+    document.getElementById('sigPreviewImg').src = signatureData;
+    document.getElementById('signaturePreview').classList.remove('hidden');
     showToast('Tanda tangan berhasil dimuat', 'success');
     updateNavButtons();
+  };
+  reader.onerror = function () {
+    showToast('Gagal membaca file gambar', 'error');
   };
   reader.readAsDataURL(file);
 }
 
-function showSignaturePreview(src) {
-  const preview = document.getElementById('signaturePreview');
-  document.getElementById('sigPreviewImg').src = src;
-  preview.classList.remove('hidden');
-}
-
 function removeSignature() {
   signatureData = null;
-  signatureFile = null;
   document.getElementById('signaturePreview').classList.add('hidden');
   document.getElementById('signatureInput').value = '';
   updateNavButtons();
 }
 
 // ============ Canvas Drawing ============
-let canvasInitialized = false;
-
 function initCanvas() {
-  if (canvasInitialized) return;
+  if (canvasReady) return;
 
   canvas = document.getElementById('signatureCanvas');
+  var rect = canvas.getBoundingClientRect();
+
+  // Canvas must be visible to get dimensions
+  if (rect.width < 10) return;
+
+  canvasReady = true;
   ctx = canvas.getContext('2d');
-
-  // Only init when canvas is visible (has dimensions)
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width === 0) return; // Will retry when step 2 is shown
-
-  canvasInitialized = true;
   canvas.width = rect.width * 2;
   canvas.height = rect.height * 2;
   ctx.scale(2, 2);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Mouse events
-  canvas.addEventListener('mousedown', startDrawing);
-  canvas.addEventListener('mousemove', draw);
-  canvas.addEventListener('mouseup', stopDrawing);
-  canvas.addEventListener('mouseleave', stopDrawing);
-
-  // Touch events
-  canvas.addEventListener('touchstart', e => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
-    startDrawing({ offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top });
-  });
-  canvas.addEventListener('touchmove', e => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
-    draw({ offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top });
-  });
-  canvas.addEventListener('touchend', stopDrawing);
+  canvas.addEventListener('mousedown', canvasMouseDown);
+  canvas.addEventListener('mousemove', canvasMouseMove);
+  canvas.addEventListener('mouseup', canvasStop);
+  canvas.addEventListener('mouseleave', canvasStop);
+  canvas.addEventListener('touchstart', canvasTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', canvasTouchMove, { passive: false });
+  canvas.addEventListener('touchend', canvasStop);
 }
 
-function startDrawing(e) {
+function canvasMouseDown(e) {
   isDrawing = true;
-  [lastX, lastY] = [e.offsetX, e.offsetY];
+  lastX = e.offsetX;
+  lastY = e.offsetY;
 }
 
-function draw(e) {
+function canvasMouseMove(e) {
   if (!isDrawing) return;
-  ctx.strokeStyle = document.getElementById('penColor').value;
-  ctx.lineWidth = document.getElementById('penSize').value;
-  ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(e.offsetX, e.offsetY);
-  ctx.stroke();
-  [lastX, lastY] = [e.offsetX, e.offsetY];
+  drawLine(lastX, lastY, e.offsetX, e.offsetY);
+  lastX = e.offsetX;
+  lastY = e.offsetY;
 }
 
-function stopDrawing() {
+function canvasTouchStart(e) {
+  e.preventDefault();
+  var t = e.touches[0];
+  var r = canvas.getBoundingClientRect();
+  isDrawing = true;
+  lastX = t.clientX - r.left;
+  lastY = t.clientY - r.top;
+}
+
+function canvasTouchMove(e) {
+  e.preventDefault();
+  if (!isDrawing) return;
+  var t = e.touches[0];
+  var r = canvas.getBoundingClientRect();
+  var x = t.clientX - r.left;
+  var y = t.clientY - r.top;
+  drawLine(lastX, lastY, x, y);
+  lastX = x;
+  lastY = y;
+}
+
+function canvasStop() {
   isDrawing = false;
 }
 
+function drawLine(x1, y1, x2, y2) {
+  ctx.strokeStyle = document.getElementById('penColor').value;
+  ctx.lineWidth = parseInt(document.getElementById('penSize').value);
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+}
+
 function clearCanvas() {
-  if (!canvasInitialized || !ctx) return;
+  if (!canvasReady) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
 function useDrawnSignature() {
-  // Check if canvas has any drawing
-  const pixelData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  let hasDrawing = false;
-  for (let i = 3; i < pixelData.length; i += 4) {
-    if (pixelData[i] > 0) { hasDrawing = true; break; }
+  if (!canvasReady) {
+    showToast('Canvas belum siap', 'error');
+    return;
   }
-  if (!hasDrawing) {
+
+  var pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  var hasContent = false;
+  for (var i = 3; i < pixels.length; i += 4) {
+    if (pixels[i] > 0) { hasContent = true; break; }
+  }
+
+  if (!hasContent) {
     showToast('Gambar tanda tangan terlebih dahulu', 'error');
     return;
   }
 
   signatureData = canvas.toDataURL('image/png');
-  signatureFile = null;
-  showSignaturePreview(signatureData);
+  document.getElementById('sigPreviewImg').src = signatureData;
+  document.getElementById('signaturePreview').classList.remove('hidden');
   showToast('Tanda tangan berhasil dibuat', 'success');
   updateNavButtons();
 }
 
-// ============ Tabs ============
-function initTabs() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(btn.dataset.tab).classList.add('active');
-    });
-  });
-}
-
-// ============ PDF Viewer (Step 3) ============
+// ============ PDF Viewer ============
 async function loadPdfPreview() {
-  showLoading('Memuat preview PDF...');
-  try {
-    // Ensure PDF.js is ready
-    if (typeof pdfjsLib === 'undefined') {
-      throw new Error('PDF.js library belum dimuat. Periksa koneksi internet.');
-    }
-    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    }
+  if (typeof pdfjsLib === 'undefined') {
+    showToast('Library PDF belum dimuat. Refresh halaman.', 'error');
+    return;
+  }
 
-    const url = `/api/pdf/${pdfFilename}`;
-    pdfDoc = await pdfjsLib.getDocument(url).promise;
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  showLoading('Memuat preview PDF...');
+
+  try {
+    pdfDoc = await pdfjsLib.getDocument('/api/pdf/' + pdfFilename).promise;
     totalPagesCount = pdfDoc.numPages;
     currentPageNum = 1;
     document.getElementById('totalPages').textContent = totalPagesCount;
-    updatePageButtons();
     await renderPage(currentPageNum);
-
-    // Restore placed signatures visibility
-    placedSignatures.forEach(sig => {
-      sig.element.style.display = sig.page === (currentPageNum - 1) ? 'block' : 'none';
-    });
   } catch (err) {
-    showToast('Gagal memuat PDF', 'error');
-    console.error(err);
+    console.error('PDF preview error:', err);
+    showToast('Gagal memuat PDF: ' + err.message, 'error');
   } finally {
     hideLoading();
   }
 }
 
 async function renderPage(num) {
-  const page = await pdfDoc.getPage(num);
-  const pdfCanvas = document.getElementById('pdfCanvas');
-  const context = pdfCanvas.getContext('2d');
+  var page = await pdfDoc.getPage(num);
+  var pdfCanvas = document.getElementById('pdfCanvas');
+  var context = pdfCanvas.getContext('2d');
+  var viewer = document.getElementById('pdfViewer');
 
-  const containerWidth = document.getElementById('pdfViewer').clientWidth - 4;
-  const viewport = page.getViewport({ scale: 1 });
-  const scale = containerWidth / viewport.width;
-  const scaledViewport = page.getViewport({ scale });
+  var containerWidth = viewer.clientWidth - 4;
+  var viewport = page.getViewport({ scale: 1 });
+  var scale = containerWidth / viewport.width;
+  var sv = page.getViewport({ scale: scale });
 
-  pdfCanvas.width = scaledViewport.width;
-  pdfCanvas.height = scaledViewport.height;
+  pdfCanvas.width = sv.width;
+  pdfCanvas.height = sv.height;
 
-  // Set overlay size to match canvas
-  const overlay = document.getElementById('signaturesOverlay');
-  overlay.style.width = pdfCanvas.width + 'px';
-  overlay.style.height = pdfCanvas.height + 'px';
+  var overlay = document.getElementById('signaturesOverlay');
+  overlay.style.width = sv.width + 'px';
+  overlay.style.height = sv.height + 'px';
 
-  await page.render({ canvasContext: context, viewport: scaledViewport }).promise;
+  await page.render({ canvasContext: context, viewport: sv }).promise;
 
   document.getElementById('currentPage').textContent = num;
   updatePageButtons();
 
-  // Show/hide signatures based on current page
-  placedSignatures.forEach(sig => {
+  // Show/hide signatures per page
+  placedSignatures.forEach(function (sig) {
     sig.element.style.display = sig.page === (num - 1) ? 'block' : 'none';
   });
 }
 
 function prevPage() {
-  if (currentPageNum <= 1) return;
-  currentPageNum--;
-  renderPage(currentPageNum);
+  if (currentPageNum > 1) { currentPageNum--; renderPage(currentPageNum); }
 }
 
 function nextPage() {
-  if (currentPageNum >= totalPagesCount) return;
-  currentPageNum++;
-  renderPage(currentPageNum);
+  if (currentPageNum < totalPagesCount) { currentPageNum++; renderPage(currentPageNum); }
 }
 
 function updatePageButtons() {
@@ -360,211 +413,200 @@ function addSignatureToPage() {
     return;
   }
 
-  const overlay = document.getElementById('signaturesOverlay');
-  const pdfCanvas = document.getElementById('pdfCanvas');
-  const id = ++sigIdCounter;
+  var overlay = document.getElementById('signaturesOverlay');
+  var pdfCanvas = document.getElementById('pdfCanvas');
+  var id = ++sigIdCounter;
 
-  const sigEl = document.createElement('div');
-  sigEl.className = 'sig-draggable';
-  sigEl.dataset.id = id;
+  var el = document.createElement('div');
+  el.className = 'sig-draggable';
 
-  const img = document.createElement('img');
+  var img = document.createElement('img');
   img.src = signatureData;
   img.draggable = false;
 
-  const deleteBtn = document.createElement('button');
-  deleteBtn.className = 'sig-delete';
-  deleteBtn.textContent = '\u00d7';
-  deleteBtn.onclick = (e) => { e.stopPropagation(); removeSignaturePlacement(id); };
+  var delBtn = document.createElement('button');
+  delBtn.className = 'sig-delete';
+  delBtn.innerHTML = '&times;';
+  delBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    removeSignaturePlacement(id);
+  });
 
-  const resizeHandle = document.createElement('div');
-  resizeHandle.className = 'sig-resize';
+  var resize = document.createElement('div');
+  resize.className = 'sig-resize';
 
-  sigEl.appendChild(img);
-  sigEl.appendChild(deleteBtn);
-  sigEl.appendChild(resizeHandle);
+  el.appendChild(img);
+  el.appendChild(delBtn);
+  el.appendChild(resize);
 
-  // Default size & position
-  const defaultWidth = Math.min(150, pdfCanvas.width * 0.25);
-  const defaultHeight = defaultWidth * 0.5;
-  const centerX = (pdfCanvas.width - defaultWidth) / 2;
-  const centerY = (pdfCanvas.height - defaultHeight) / 2;
+  var w = Math.min(150, pdfCanvas.width * 0.25);
+  var h = w * 0.5;
+  var x = (pdfCanvas.width - w) / 2;
+  var y = (pdfCanvas.height - h) / 2;
 
-  sigEl.style.left = centerX + 'px';
-  sigEl.style.top = centerY + 'px';
-  sigEl.style.width = defaultWidth + 'px';
-  sigEl.style.height = defaultHeight + 'px';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.style.width = w + 'px';
+  el.style.height = h + 'px';
 
-  const opacity = parseFloat(document.getElementById('globalOpacity').value);
-  sigEl.style.opacity = opacity;
+  var opacity = parseFloat(document.getElementById('globalOpacity').value);
+  el.style.opacity = opacity;
 
-  overlay.appendChild(sigEl);
+  overlay.appendChild(el);
 
-  const sigData = {
-    id,
-    page: currentPageNum - 1,
-    x: centerX,
-    y: centerY,
-    width: defaultWidth,
-    height: defaultHeight,
-    opacity,
-    element: sigEl
-  };
-
+  var sigData = { id: id, page: currentPageNum - 1, x: x, y: y, width: w, height: h, opacity: opacity, element: el };
   placedSignatures.push(sigData);
-  makeDraggable(sigEl, sigData);
-  makeResizable(resizeHandle, sigEl, sigData);
+
+  setupDrag(el, sigData);
+  setupResize(resize, el, sigData);
   updateSignaturesList();
-  showToast(`Tanda tangan ditambahkan di halaman ${currentPageNum}`, 'success');
+  updateNavButtons();
+
+  showToast('Tanda tangan ditambahkan di halaman ' + currentPageNum, 'success');
 }
 
-function makeDraggable(el, sigData) {
-  let startX, startY, origLeft, origTop;
+function setupDrag(el, sigData) {
+  var startX, startY, origLeft, origTop;
 
-  const onMouseDown = (e) => {
+  function onDown(e) {
     if (e.target.classList.contains('sig-delete') || e.target.classList.contains('sig-resize')) return;
     e.preventDefault();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    startX = clientX;
-    startY = clientY;
-    origLeft = el.offsetLeft;
-    origTop = el.offsetTop;
+    var cx = e.touches ? e.touches[0].clientX : e.clientX;
+    var cy = e.touches ? e.touches[0].clientY : e.clientY;
+    startX = cx; startY = cy;
+    origLeft = el.offsetLeft; origTop = el.offsetTop;
 
-    document.querySelectorAll('.sig-draggable').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.sig-draggable').forEach(function (s) { s.classList.remove('active'); });
     el.classList.add('active');
 
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    document.addEventListener('touchmove', onMouseMove, { passive: false });
-    document.addEventListener('touchend', onMouseUp);
-  };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+  }
 
-  const onMouseMove = (e) => {
+  function onMove(e) {
     e.preventDefault();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const dx = clientX - startX;
-    const dy = clientY - startY;
+    var cx = e.touches ? e.touches[0].clientX : e.clientX;
+    var cy = e.touches ? e.touches[0].clientY : e.clientY;
 
-    const overlay = document.getElementById('signaturesOverlay');
-    const maxX = overlay.clientWidth - el.offsetWidth;
-    const maxY = overlay.clientHeight - el.offsetHeight;
+    var overlay = document.getElementById('signaturesOverlay');
+    var maxX = overlay.clientWidth - el.offsetWidth;
+    var maxY = overlay.clientHeight - el.offsetHeight;
 
-    const newLeft = Math.max(0, Math.min(maxX, origLeft + dx));
-    const newTop = Math.max(0, Math.min(maxY, origTop + dy));
+    var nx = Math.max(0, Math.min(maxX, origLeft + cx - startX));
+    var ny = Math.max(0, Math.min(maxY, origTop + cy - startY));
 
-    el.style.left = newLeft + 'px';
-    el.style.top = newTop + 'px';
+    el.style.left = nx + 'px';
+    el.style.top = ny + 'px';
+    sigData.x = nx;
+    sigData.y = ny;
+  }
 
-    sigData.x = newLeft;
-    sigData.y = newTop;
-  };
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+  }
 
-  const onMouseUp = () => {
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-    document.removeEventListener('touchmove', onMouseMove);
-    document.removeEventListener('touchend', onMouseUp);
-  };
-
-  el.addEventListener('mousedown', onMouseDown);
-  el.addEventListener('touchstart', onMouseDown, { passive: false });
+  el.addEventListener('mousedown', onDown);
+  el.addEventListener('touchstart', onDown, { passive: false });
 }
 
-function makeResizable(handle, el, sigData) {
-  let startX, startY, origW, origH;
+function setupResize(handle, el, sigData) {
+  var startX, startY, origW, origH;
 
-  const onMouseDown = (e) => {
+  function onDown(e) {
     e.preventDefault();
     e.stopPropagation();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    startX = clientX;
-    startY = clientY;
-    origW = el.offsetWidth;
-    origH = el.offsetHeight;
+    var cx = e.touches ? e.touches[0].clientX : e.clientX;
+    var cy = e.touches ? e.touches[0].clientY : e.clientY;
+    startX = cx; startY = cy;
+    origW = el.offsetWidth; origH = el.offsetHeight;
 
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    document.addEventListener('touchmove', onMouseMove, { passive: false });
-    document.addEventListener('touchend', onMouseUp);
-  };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+  }
 
-  const onMouseMove = (e) => {
+  function onMove(e) {
     e.preventDefault();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const dx = clientX - startX;
-    const dy = clientY - startY;
-    const newW = Math.max(40, origW + dx);
-    const newH = Math.max(20, origH + dy);
-    el.style.width = newW + 'px';
-    el.style.height = newH + 'px';
-    sigData.width = newW;
-    sigData.height = newH;
-  };
+    var cx = e.touches ? e.touches[0].clientX : e.clientX;
+    var cy = e.touches ? e.touches[0].clientY : e.clientY;
+    var nw = Math.max(40, origW + cx - startX);
+    var nh = Math.max(20, origH + cy - startY);
+    el.style.width = nw + 'px';
+    el.style.height = nh + 'px';
+    sigData.width = nw;
+    sigData.height = nh;
+  }
 
-  const onMouseUp = () => {
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-    document.removeEventListener('touchmove', onMouseMove);
-    document.removeEventListener('touchend', onMouseUp);
-  };
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+  }
 
-  handle.addEventListener('mousedown', onMouseDown);
-  handle.addEventListener('touchstart', onMouseDown, { passive: false });
+  handle.addEventListener('mousedown', onDown);
+  handle.addEventListener('touchstart', onDown, { passive: false });
 }
 
 function removeSignaturePlacement(id) {
-  const idx = placedSignatures.findIndex(s => s.id === id);
+  var idx = placedSignatures.findIndex(function (s) { return s.id === id; });
   if (idx >= 0) {
     placedSignatures[idx].element.remove();
     placedSignatures.splice(idx, 1);
     updateSignaturesList();
+    updateNavButtons();
   }
 }
 
 function updateSignaturesList() {
-  const list = document.getElementById('signaturesList');
+  var list = document.getElementById('signaturesList');
+
   if (placedSignatures.length === 0) {
     list.innerHTML = '<p class="empty-message">Belum ada tanda tangan. Klik "Tambah Tanda Tangan" untuk menambahkan.</p>';
     return;
   }
 
-  list.innerHTML = placedSignatures.map(sig => `
-    <div class="sig-list-item" onclick="goToSignature(${sig.id})">
-      <img src="${signatureData}" class="sig-thumb" alt="sig">
-      <span class="sig-info">Halaman ${sig.page + 1}</span>
-      <button class="sig-remove" onclick="event.stopPropagation(); removeSignaturePlacement(${sig.id})">&times;</button>
-    </div>
-  `).join('');
+  list.innerHTML = '';
+  placedSignatures.forEach(function (sig) {
+    var item = document.createElement('div');
+    item.className = 'sig-list-item';
 
-  updateNavButtons();
-}
+    var thumb = document.createElement('img');
+    thumb.src = signatureData;
+    thumb.className = 'sig-thumb';
 
-function goToSignature(id) {
-  const sig = placedSignatures.find(s => s.id === id);
-  if (sig && (sig.page + 1) !== currentPageNum) {
-    currentPageNum = sig.page + 1;
-    renderPage(currentPageNum);
-  }
-  // Highlight
-  document.querySelectorAll('.sig-draggable').forEach(s => s.classList.remove('active'));
-  sig.element.classList.add('active');
-}
+    var info = document.createElement('span');
+    info.className = 'sig-info';
+    info.textContent = 'Halaman ' + (sig.page + 1);
 
-// ============ Opacity Slider ============
-function initOpacitySlider() {
-  const slider = document.getElementById('globalOpacity');
-  const label = document.getElementById('opacityValue');
-  slider.addEventListener('input', () => {
-    const val = parseFloat(slider.value);
-    label.textContent = Math.round(val * 100) + '%';
-    placedSignatures.forEach(sig => {
-      sig.opacity = val;
-      sig.element.style.opacity = val;
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'sig-remove';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      removeSignaturePlacement(sig.id);
     });
+
+    item.appendChild(thumb);
+    item.appendChild(info);
+    item.appendChild(removeBtn);
+
+    item.addEventListener('click', function () {
+      if ((sig.page + 1) !== currentPageNum) {
+        currentPageNum = sig.page + 1;
+        renderPage(currentPageNum);
+      }
+      document.querySelectorAll('.sig-draggable').forEach(function (s) { s.classList.remove('active'); });
+      sig.element.classList.add('active');
+    });
+
+    list.appendChild(item);
   });
 }
 
@@ -577,33 +619,40 @@ async function signPdf() {
 
   showLoading('Menandatangani PDF...');
 
-  const pdfCanvas = document.getElementById('pdfCanvas');
+  var pdfCanvas = document.getElementById('pdfCanvas');
 
-  const signaturesPayload = placedSignatures.map(sig => ({
-    page: sig.page,
-    x: sig.x,
-    y: sig.y,
-    width: sig.width,
-    height: sig.height,
-    previewWidth: pdfCanvas.width,
-    previewHeight: pdfCanvas.height,
-    opacity: sig.opacity
-  }));
-
-  const formData = new FormData();
-  formData.append('pdfFilename', pdfFilename);
-  formData.append('signatures', JSON.stringify(signaturesPayload));
-  formData.append('signatureData', signatureData);
+  var payload = placedSignatures.map(function (sig) {
+    return {
+      page: sig.page,
+      x: sig.x,
+      y: sig.y,
+      width: sig.width,
+      height: sig.height,
+      previewWidth: pdfCanvas.width,
+      previewHeight: pdfCanvas.height,
+      opacity: sig.opacity
+    };
+  });
 
   try {
-    const res = await fetch('/api/sign-pdf', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    var formData = new FormData();
+    formData.append('pdfFilename', pdfFilename);
+    formData.append('signatures', JSON.stringify(payload));
+    formData.append('signatureData', signatureData);
 
+    var res = await fetch('/api/sign-pdf', { method: 'POST', body: formData });
+
+    if (!res.ok) {
+      var errData = await res.json().catch(function () { return {}; });
+      throw new Error(errData.error || 'Gagal menandatangani');
+    }
+
+    var data = await res.json();
     signedFilename = data.filename;
     showToast('PDF berhasil ditandatangani!', 'success');
     goToStep(4);
   } catch (err) {
+    console.error('Sign error:', err);
     showToast(err.message || 'Gagal menandatangani PDF', 'error');
   } finally {
     hideLoading();
@@ -611,15 +660,14 @@ async function signPdf() {
 }
 
 function downloadSignedPdf() {
-  if (!signedFilename) return;
-  window.location.href = `/api/download/${signedFilename}`;
+  if (signedFilename) {
+    window.location.href = '/api/download/' + signedFilename;
+  }
 }
 
 function startOver() {
-  pdfFile = null;
   pdfFilename = null;
   signatureData = null;
-  signatureFile = null;
   pdfDoc = null;
   placedSignatures = [];
   signedFilename = null;
@@ -640,29 +688,25 @@ function startOver() {
 function goToStep(step) {
   currentStep = step;
 
-  // Update step content
-  document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
-  document.getElementById(`step${step}`).classList.add('active');
+  document.querySelectorAll('.step-content').forEach(function (el) { el.classList.remove('active'); });
+  document.getElementById('step' + step).classList.add('active');
 
-  // Update step indicators
-  document.querySelectorAll('.steps-indicator .step').forEach(el => {
-    const s = parseInt(el.dataset.step);
+  document.querySelectorAll('.steps-indicator .step').forEach(function (el) {
+    var s = parseInt(el.dataset.step);
     el.classList.remove('active', 'completed');
     if (s === step) el.classList.add('active');
     else if (s < step) el.classList.add('completed');
   });
 
-  // Show/hide nav buttons on step 4
   document.getElementById('navButtons').style.display = step === 4 ? 'none' : 'flex';
-
   updateNavButtons();
 
-  // Init canvas when entering step 2 (needs to be visible for sizing)
+  // Init canvas when step 2 is visible
   if (step === 2) {
-    initCanvas();
+    setTimeout(initCanvas, 50);
   }
 
-  // Load PDF preview when entering step 3
+  // Load PDF preview when step 3
   if (step === 3 && pdfDoc === null) {
     loadPdfPreview();
   }
@@ -689,11 +733,9 @@ function prevStep() {
 }
 
 function updateNavButtons() {
-  const prevBtn = document.getElementById('prevBtn');
-  const nextBtn = document.getElementById('nextBtn');
+  document.getElementById('prevBtn').disabled = currentStep === 1;
 
-  prevBtn.disabled = currentStep === 1;
-
+  var nextBtn = document.getElementById('nextBtn');
   if (currentStep === 3) {
     nextBtn.textContent = 'Tanda Tangani PDF';
     nextBtn.disabled = placedSignatures.length === 0;
@@ -722,11 +764,11 @@ function hideLoading() {
 }
 
 function showToast(message, type) {
-  const toast = document.getElementById('toast');
+  var toast = document.getElementById('toast');
   toast.textContent = message;
-  toast.className = `toast ${type || 'info'}`;
-  // Force reflow
-  toast.offsetHeight;
+  toast.className = 'toast ' + (type || 'info');
+  void toast.offsetHeight;
   toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3000);
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(function () { toast.classList.remove('show'); }, 3000);
 }

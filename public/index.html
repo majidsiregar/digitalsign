@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Digital Sign - Tanda Tangan Digital PDF</title>
   <link rel="stylesheet" href="style.css">
-
 </head>
 <body>
   <div class="app">
@@ -64,10 +63,8 @@
           <h2>Upload Dokumen PDF</h2>
           <p>Seret & lepas file PDF di sini, atau klik untuk memilih</p>
           <p class="upload-hint">Maksimal ukuran file: 50MB</p>
-          <input type="file" id="pdfInput" accept=".pdf,application/pdf" hidden>
-          <button class="btn btn-primary" id="pdfSelectBtn">
-            Pilih File PDF
-          </button>
+          <input type="file" id="pdfInput" accept=".pdf,application/pdf" style="display:none">
+          <button class="btn btn-primary" id="pdfSelectBtn">Pilih File PDF</button>
         </div>
         <div id="pdfFileInfo" class="file-info hidden">
           <div class="file-info-icon">
@@ -80,7 +77,7 @@
             <span id="pdfFileName" class="file-name"></span>
             <span id="pdfFileSize" class="file-size"></span>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="removePdf()">Ganti</button>
+          <button class="btn btn-outline btn-sm" id="changePdfBtn">Ganti</button>
         </div>
       </section>
 
@@ -104,10 +101,8 @@
             </div>
             <h3>Upload Tanda Tangan (PNG/JPG)</h3>
             <p>Gunakan gambar dengan latar belakang transparan untuk hasil terbaik</p>
-            <input type="file" id="signatureInput" accept="image/png,image/jpeg,image/jpg" hidden>
-            <button class="btn btn-primary" id="sigSelectBtn">
-              Pilih Gambar
-            </button>
+            <input type="file" id="signatureInput" accept="image/png,image/jpeg,image/jpg" style="display:none">
+            <button class="btn btn-primary" id="sigSelectBtn">Pilih Gambar</button>
           </div>
         </div>
 
@@ -125,8 +120,8 @@
                 </label>
               </div>
               <div class="draw-actions">
-                <button class="btn btn-outline btn-sm" onclick="clearCanvas()">Hapus</button>
-                <button class="btn btn-primary btn-sm" onclick="useDrawnSignature()">Gunakan</button>
+                <button class="btn btn-outline btn-sm" id="clearCanvasBtn">Hapus</button>
+                <button class="btn btn-primary btn-sm" id="useDrawnBtn">Gunakan</button>
               </div>
             </div>
           </div>
@@ -138,7 +133,7 @@
           <div class="preview-box">
             <img id="sigPreviewImg" src="" alt="Preview tanda tangan">
           </div>
-          <button class="btn btn-outline btn-sm" onclick="removeSignature()">Ganti Tanda Tangan</button>
+          <button class="btn btn-outline btn-sm" id="changeSigBtn">Ganti Tanda Tangan</button>
         </div>
       </section>
 
@@ -147,7 +142,7 @@
         <div class="position-layout">
           <div class="pdf-viewer-container">
             <div class="pdf-toolbar">
-              <button class="btn btn-icon" onclick="prevPage()" id="prevPageBtn" disabled>
+              <button class="btn btn-icon" id="prevPageBtn" disabled>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="15 18 9 12 15 6"/>
                 </svg>
@@ -155,15 +150,13 @@
               <span class="page-info">
                 Halaman <span id="currentPage">1</span> dari <span id="totalPages">1</span>
               </span>
-              <button class="btn btn-icon" onclick="nextPage()" id="nextPageBtn" disabled>
+              <button class="btn btn-icon" id="nextPageBtn" disabled>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="9 18 15 12 9 6"/>
                 </svg>
               </button>
               <div class="toolbar-separator"></div>
-              <button class="btn btn-primary btn-sm" onclick="addSignatureToPage()">
-                + Tambah Tanda Tangan
-              </button>
+              <button class="btn btn-primary btn-sm" id="addSigBtn">+ Tambah Tanda Tangan</button>
             </div>
             <div class="pdf-viewer" id="pdfViewer">
               <canvas id="pdfCanvas"></canvas>
@@ -197,7 +190,7 @@
           </div>
           <h2>PDF Berhasil Ditandatangani!</h2>
           <p>Dokumen Anda telah berhasil ditandatangani. Klik tombol di bawah untuk mengunduh.</p>
-          <button class="btn btn-primary btn-lg" id="downloadBtn" onclick="downloadSignedPdf()">
+          <button class="btn btn-primary btn-lg" id="downloadBtn">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
@@ -205,15 +198,15 @@
             </svg>
             Download PDF
           </button>
-          <button class="btn btn-outline" onclick="startOver()">Tanda Tangani Dokumen Lain</button>
+          <button class="btn btn-outline" id="startOverBtn">Tanda Tangani Dokumen Lain</button>
         </div>
       </section>
     </main>
 
     <!-- Navigation Buttons -->
     <div class="nav-buttons" id="navButtons">
-      <button class="btn btn-outline" id="prevBtn" onclick="prevStep()" disabled>Kembali</button>
-      <button class="btn btn-primary" id="nextBtn" onclick="nextStep()">Lanjut</button>
+      <button class="btn btn-outline" id="prevBtn" disabled>Kembali</button>
+      <button class="btn btn-primary" id="nextBtn">Lanjut</button>
     </div>
 
     <!-- Loading Overlay -->
