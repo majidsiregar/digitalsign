@@ -807,15 +807,8 @@ function updateNavButtons() {
 }
 
 // ============ Auth ============
-async function logout() {
-  var token = sessionStorage.getItem('authToken');
+function logout() {
   sessionStorage.removeItem('authToken');
-  try {
-    await fetch('/api/logout', {
-      method: 'POST',
-      headers: { 'x-auth-token': token || '' }
-    });
-  } catch (e) { /* ignore */ }
   window.location.replace('/login.html');
 }
 

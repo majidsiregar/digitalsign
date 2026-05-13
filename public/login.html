@@ -199,6 +199,19 @@
   </div>
 
   <script>
+    var VALID_USER = 'majid';
+    // SHA-256 hash of the password (computed server-side, verified client-side)
+    var VALID_HASH = '9946ada067b143a7af04d272c1ee6172b444999f1bc556c3c46e62200407de6d';
+
+    async function hashPassword(password) {
+      var encoder = new TextEncoder();
+      var data = encoder.encode(password);
+      var buffer = await crypto.subtle.digest('SHA-256', data);
+      return Array.from(new Uint8Array(buffer))
+        .map(function(b) { return b.toString(16).padStart(2, '0'); })
+        .join('');
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async function(e) {
       e.preventDefault();
 
@@ -211,30 +224,20 @@
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-inline"></span>Memproses...';
 
-      try {
-        var res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: username, password: password })
-        });
+      var hash = await hashPassword(password);
 
-        var data = await res.json();
-
-        if (res.ok && data.token) {
-          sessionStorage.setItem('authToken', data.token);
-          window.location.replace('/');
-        } else {
-          errorMsg.classList.add('show');
-          btn.disabled = false;
-          btn.textContent = 'Masuk';
-          document.getElementById('password').value = '';
-          document.getElementById('password').focus();
-        }
-      } catch (err) {
-        errorMsg.textContent = 'Gagal terhubung ke server. Coba lagi.';
+      if (username === VALID_USER && hash === VALID_HASH) {
+        // Generate a random session token and store it
+        var token = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+          .map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+        sessionStorage.setItem('authToken', token);
+        window.location.replace('/');
+      } else {
         errorMsg.classList.add('show');
         btn.disabled = false;
         btn.textContent = 'Masuk';
+        document.getElementById('password').value = '';
+        document.getElementById('password').focus();
       }
     });
   </script>
