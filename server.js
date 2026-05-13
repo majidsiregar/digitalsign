@@ -2,11 +2,27 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { PDFDocument } = require('pdf-lib');
 const sharp = require('sharp');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Simple session store: token → expiry timestamp
+const activeSessions = new Map();
+
+const VALID_USERNAME = 'majid';
+const VALID_PASSWORD = 'majidttd';
+
+function authMiddleware(req, res, next) {
+  const token = req.headers['x-auth-token'];
+  if (!token || !activeSessions.has(token) || activeSessions.get(token) < Date.now()) {
+    if (token) activeSessions.delete(token);
+    return res.status(401).json({ error: 'Sesi tidak valid. Silakan login kembali.' });
+  }
+  next();
+}
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -40,6 +56,34 @@ const upload = multer({
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '50mb' }));
+
+// Login endpoint
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (username === VALID_USERNAME && password === VALID_PASSWORD) {
+    const token = crypto.randomBytes(32).toString('hex');
+    activeSessions.set(token, Date.now() + 24 * 60 * 60 * 1000); // 24 jam
+    return res.json({ token });
+  }
+  res.status(401).json({ error: 'Username atau password salah' });
+});
+
+// Logout endpoint
+app.post('/api/logout', (req, res) => {
+  const token = req.headers['x-auth-token'];
+  if (token) activeSessions.delete(token);
+  res.json({ success: true });
+});
+
+// Verify token endpoint
+app.get('/api/verify', (req, res) => {
+  const token = req.headers['x-auth-token'];
+  if (token && activeSessions.has(token) && activeSessions.get(token) > Date.now()) {
+    return res.json({ valid: true });
+  }
+  if (token) activeSessions.delete(token);
+  res.status(401).json({ valid: false });
+});
 
 // Upload PDF endpoint
 app.post('/api/upload-pdf', upload.single('pdf'), (req, res) => {
