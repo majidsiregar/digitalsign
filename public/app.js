@@ -129,6 +129,9 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('downloadBtn').addEventListener('click', downloadSignedPdf);
   document.getElementById('startOverBtn').addEventListener('click', startOver);
 
+  // --- Logout ---
+  document.getElementById('logoutBtn').addEventListener('click', logout);
+
   // --- PDF.js ---
   if (typeof pdfjsLib !== 'undefined') {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -801,6 +804,12 @@ function updateNavButtons() {
     else if (currentStep === 2) nextBtn.disabled = !signatureData;
     else nextBtn.disabled = false;
   }
+}
+
+// ============ Auth ============
+function logout() {
+  sessionStorage.removeItem('authToken');
+  window.location.replace('/login.html');
 }
 
 // ============ Utilities ============
